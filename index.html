@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Advanced Local Route Creator</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; height: 100vh; overflow: hidden; }
+        
+        /* --- MAIN MENU OVERLAY --- */
+        #main-menu-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0, 0, 0, 0.85); z-index: 3000;
+            display: flex; justify-content: center; align-items: center;
+        }
+        .menu-box {
+            background: white; padding: 40px; border-radius: 10px; width: 400px; max-width: 90%;
+            text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .menu-box h1 { margin-top: 0; color: #333; font-size: 24px; border-bottom: 2px solid #007bff; padding-bottom: 15px; margin-bottom: 25px;}
+        .menu-view { display: none; }
+        .menu-view.active { display: block; }
+        .menu-btn { padding: 15px; margin-bottom: 15px; font-size: 16px; width: 100%; }
+        .network-list { max-height: 250px; overflow-y: auto; text-align: left; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 5px; padding: 5px;}
+        .network-list-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee; }
+        .network-list-item:last-child { border-bottom: none; }
+
+        /* Sidebar Styling */
+        #sidebar { 
+            width: 350px; min-width: 350px; background: #f8f9fa; display: flex; flex-direction: column; 
+            border-right: 2px solid #ccc; z-index: 1000; position: relative; 
+            transition: margin-left 0.3s ease; margin-left: 0;
+        }
+        #sidebar.collapsed { margin-left: -350px; }
+        #toggleSidebar {
+            position: absolute; right: -30px; top: 50%; transform: translateY(-50%); width: 30px; height: 60px;
+            background: #fff; border: 2px solid #ccc; border-left: none; border-radius: 0 8px 8px 0;
+            cursor: pointer; z-index: 1001; display: flex; align-items: center; justify-content: center;
+            box-shadow: 3px 0 5px rgba(0,0,0,0.1); font-size: 14px; color: #333;
+        }
+        #toggleSidebar:hover { background: #e9ecef; }
+
+        .panel { padding: 20px; border-bottom: 1px solid #e9ecef; }
+        .panel h3 { margin-top: 0; color: #333; }
+        .network-header { background: #e9ecef; border-bottom: 2px solid #ccc;}
+        
+        /* Form Elements */
+        input[type="text"] { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px;}
+        .color-row { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
+        button { background: #007bff; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; width: 100%; font-weight: bold; }
+        button:hover { background: #0056b3; }
+        button.secondary { background: #6c757d; }
+        button.secondary:hover { background: #5a6268; }
+        button.warning { background: #ffc107; color: #333; }
+        button.warning:hover { background: #e0a800; }
+        button.danger { background: #dc3545; width: auto; padding: 6px 10px; font-size: 12px; color: white;}
+        button.danger:hover { background: #c82333; }
+        
+        .btn-group { display: flex; gap: 10px; margin-bottom: 5px;}
+        .btn-group button { flex: 1; margin-bottom: 0;}
+
+        /* List Styling */
+        #routes-container { flex-grow: 1; overflow-y: auto; padding: 20px; }
+        .route-item { display: flex; justify-content: space-between; align-items: center; background: white; padding: 10px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 10px; flex-wrap: wrap;}
+        .route-info { display: flex; align-items: center; gap: 10px; overflow: hidden; width: 100%; margin-bottom: 5px;}
+        .route-info span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500;}
+        .color-box { width: 15px; height: 15px; border-radius: 3px; flex-shrink: 0;}
+        .route-stats { width: 100%; display: flex; justify-content: flex-end;}
+        
+        /* Map Container */
+        #map { flex-grow: 1; height: 100%; }
+        .leaflet-routing-container { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div id="main-menu-overlay">
+        <div class="menu-box">
+            <h1>Advanced Local Route Creator</h1>
+            
+            <div id="view-home" class="menu-view active">
+                <button class="menu-btn" onclick="switchMenuView('view-create')">➕ Create Network</button>
+                <button class="menu-btn secondary" onclick="populateLoadList(); switchMenuView('view-load')">📂 Load Network</button>
+                <button class="menu-btn danger" onclick="populateDeleteList(); switchMenuView('view-delete')">🗑️ Delete Network</button>
+                <button id="resumeBtn" class="menu-btn warning" style="display:none;" onclick="closeMainMenu()">🔙 Resume Current</button>
+            </div>
+
+            <div id="view-create" class="menu-view">
+                <h3 style="margin-top:0;">Create New Network</h3>
+                <input type="text" id="newNetworkName" placeholder="Enter network name...">
+                <div class="btn-group">
+                    <button class="secondary" onclick="switchMenuView('view-home')">Cancel</button>
+                    <button onclick="createNewNetwork()">Create & Open</button>
+                </div>
+            </div>
+
+            <div id="view-load" class="menu-view">
+                <h3 style="margin-top:0;">Select a Network</h3>
+                <div id="load-network-list" class="network-list"></div>
+                <button class="secondary" onclick="switchMenuView('view-home')">Back</button>
+            </div>
+
+            <div id="view-delete" class="menu-view">
+                <h3 style="margin-top:0; color: #dc3545;">Delete a Network</h3>
+                <p style="font-size: 12px; color: #666;">Warning: This cannot be undone.</p>
+                <div id="delete-network-list" class="network-list"></div>
+                <button class="secondary" onclick="switchMenuView('view-home')">Back</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="sidebar">
+        <button id="toggleSidebar" onclick="toggleSidebarMenu()" title="Toggle Menu">◀</button>
+
+        <div class="panel network-header">
+            <h3 id="currentNetworkLabel" style="margin-bottom: 10px;">Network: None</h3>
+            <button class="secondary" onclick="openMainMenu()">⚙️ Main Menu</button>
+        </div>
+
+        <div class="panel">
+            <h3>1. Create Route</h3>
+            <div class="btn-group">
+                <button class="warning" onclick="undoLastPoint()">↩️ Undo</button>
+                <button class="secondary" onclick="clearDraft()">🗑️ Clear</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h3>2. Save Route</h3>
+            <input type="text" id="routeName" placeholder="Name your route...">
+            <div class="color-row">
+                <label for="routeColor">Line Color:</label>
+                <input type="color" id="routeColor" value="#ff0000">
+            </div>
+            <button onclick="saveRoute()">💾 Save Route</button>
+        </div>
+
+        <div class="panel" style="border-bottom: none; padding-bottom: 0;">
+            <h3>Saved Routes</h3>
+            <div class="btn-group">
+                <button class="secondary" onclick="toggleAll(true)">Show All</button>
+                <button class="secondary" onclick="toggleAll(false)">Hide All</button>
+            </div>
+        </div>
+
+        <div id="routes-container"></div>
+    </div>
+
+    <div id="map"></div>
+
+    <script>
+        // --- 1. GLOBAL STATE & MIGRATION ---
+        var activeNetwork = null;
+        var MASTER_KEY = 'myRouteNetworks';
+
+        function migrateLegacyData() {
+            var oldData = localStorage.getItem('myAdvancedRoutes');
+            if (oldData) {
+                var networks = JSON.parse(localStorage.getItem(MASTER_KEY)) || {};
+                if (!networks["Legacy Routes"]) {
+                    networks["Legacy Routes"] = JSON.parse(oldData);
+                    localStorage.setItem(MASTER_KEY, JSON.stringify(networks));
+                }
+                localStorage.removeItem('myAdvancedRoutes'); // Clean up old system
+            }
+        }
+        migrateLegacyData(); // Run immediately
+
+        // --- 2. MAIN MENU LOGIC ---
+        function openMainMenu() {
+            document.getElementById('main-menu-overlay').style.display = 'flex';
+            document.getElementById('resumeBtn').style.display = activeNetwork ? 'block' : 'none';
+            switchMenuView('view-home');
+        }
+
+        function closeMainMenu() {
+            document.getElementById('main-menu-overlay').style.display = 'none';
+        }
+
+        function switchMenuView(viewId) {
+            document.querySelectorAll('.menu-view').forEach(el => el.classList.remove('active'));
+            document.getElementById(viewId).classList.add('active');
+        }
+
+        function getNetworks() {
+            return JSON.parse(localStorage.getItem(MASTER_KEY)) || {};
+        }
+
+        function saveNetworks(networksData) {
+            localStorage.setItem(MASTER_KEY, JSON.stringify(networksData));
+        }
+
+        function createNewNetwork() {
+            var name = document.getElementById('newNetworkName').value.trim();
+            if (!name) { alert("Please enter a name."); return; }
+            
+            var networks = getNetworks();
+            if (networks[name]) { alert("A network with this name already exists!"); return; }
+
+            networks[name] = {}; // Initialize empty network
+            saveNetworks(networks);
+            document.getElementById('newNetworkName').value = '';
+            
+            loadNetwork(name);
+        }
+
+        function loadNetwork(name) {
+            activeNetwork = name;
+            document.getElementById('currentNetworkLabel').innerText = "Network: " + name;
+            clearDraft(); // Clear any drawing in progress
+            loadSavedRoutes(); // Load routes for this specific network
+            closeMainMenu();
+        }
+
+        function populateLoadList() {
+            var networks = getNetworks();
+            var list = document.getElementById('load-network-list');
+            list.innerHTML = '';
+            var names = Object.keys(networks);
+
+            if (names.length === 0) { list.innerHTML = '<p style="padding:10px; color:#666;">No networks found.</p>'; return; }
+
+            names.forEach(name => {
+                var div = document.createElement('div');
+                div.className = 'network-list-item';
+                div.innerHTML = `<span>${name}</span> <button style="width: auto;" onclick="loadNetwork('${name.replace(/'/g, "\\'")}')">Load</button>`;
+                list.appendChild(div);
+            });
+        }
+
+        function populateDeleteList() {
+            var networks = getNetworks();
+            var list = document.getElementById('delete-network-list');
+            list.innerHTML = '';
+            var names = Object.keys(networks);
+
+            if (names.length === 0) { list.innerHTML = '<p style="padding:10px; color:#666;">No networks found.</p>'; return; }
+
+            names.forEach(name => {
+                var div = document.createElement('div');
+                div.className = 'network-list-item';
+                div.innerHTML = `<span>${name}</span> <button class="danger" onclick="deleteNetwork('${name.replace(/'/g, "\\'")}')">Delete</button>`;
+                list.appendChild(div);
+            });
+        }
+
+        function deleteNetwork(name) {
+            if(confirm("Are you sure you want to permanently delete the network '" + name + "'?")) {
+                var networks = getNetworks();
+                delete networks[name];
+                saveNetworks(networks);
+                
+                if (activeNetwork === name) {
+                    activeNetwork = null;
+                    document.getElementById('currentNetworkLabel').innerText = "Network: None";
+                    savedLayerGroup.clearLayers();
+                    document.getElementById('routes-container').innerHTML = '';
+                    document.getElementById('resumeBtn').style.display = 'none';
+                }
+                populateDeleteList(); // Refresh list
+            }
+        }
+
+        // --- 3. MAP & ROUTING LOGIC ---
+        window.toggleSidebarMenu = function() {
+            var sidebar = document.getElementById('sidebar');
+            var btn = document.getElementById('toggleSidebar');
+            sidebar.classList.toggle('collapsed');
+            btn.innerHTML = sidebar.classList.contains('collapsed') ? '▶' : '◀';
+            setTimeout(() => { map.invalidateSize(); }, 300); 
+        };
+
+        var streetTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { attribution: '© OpenStreetMap, © CARTO' });
+        var satelliteTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '© Esri' });
+
+        var map = L.map('map', { center: [35.7595, -5.8340], zoom: 13, layers: [streetTiles] });
+        L.control.layers({ "Street Map": streetTiles, "Satellite View": satelliteTiles }).addTo(map);
+
+        var activeDraftCoordinates = null; 
+        var savedPolylines = {}; 
+        var savedLayerGroup = L.layerGroup().addTo(map); 
+
+        var draftWaypoints = []; 
+        var debounceTimer = null; 
+        var tempMarkersLayer = L.layerGroup().addTo(map); 
+
+        var routingControl = L.Routing.control({
+            waypoints: [], routeWhileDragging: true, showAlternatives: false,
+            lineOptions: { styles: [{color: '#0066ff', opacity: 0.6, weight: 6, dashArray: '10, 10'}] } 
+        }).addTo(map);
+
+        routingControl.on('routesfound', function(e) { activeDraftCoordinates = e.routes[0].coordinates; });
+
+        map.on('click', function(e) {
+            if (!activeNetwork) { alert("Please open the Main Menu and create or load a Network first!"); return; }
+            draftWaypoints.push(L.Routing.waypoint(e.latlng));
+            L.circleMarker(e.latlng, { radius: 6, color: '#ff8800', weight: 3, fillOpacity: 1, fillColor: '#fff' }).addTo(tempMarkersLayer);
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(function() {
+                tempMarkersLayer.clearLayers(); 
+                routingControl.setWaypoints(draftWaypoints);
+            }, 800); 
+        });
+
+        window.undoLastPoint = function() {
+            if (draftWaypoints.length > 0) {
+                draftWaypoints.pop(); 
+                tempMarkersLayer.clearLayers();
+                draftWaypoints.forEach(wp => { L.circleMarker(wp.latLng, { radius: 6, color: '#ff8800', weight: 3, fillOpacity: 1, fillColor: '#fff' }).addTo(tempMarkersLayer); });
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(function() { tempMarkersLayer.clearLayers(); routingControl.setWaypoints(draftWaypoints); }, 800);
+                if (draftWaypoints.length < 2) activeDraftCoordinates = null;
+            }
+        };
+
+        window.clearDraft = function() {
+            draftWaypoints = [];
+            tempMarkersLayer.clearLayers();
+            routingControl.setWaypoints([]);
+            activeDraftCoordinates = null;
+            clearTimeout(debounceTimer);
+        }
+
+        // --- 4. DATA SAVING LOGIC ---
+        window.saveRoute = function() {
+            if (!activeNetwork) { alert("No network loaded!"); return; }
+            var name = document.getElementById('routeName').value.trim();
+            var color = document.getElementById('routeColor').value;
+
+            if (!name) { alert("Please enter a name."); return; }
+            if (!activeDraftCoordinates || activeDraftCoordinates.length === 0) { alert("Please create a route first."); return; }
+
+            var networks = getNetworks();
+            
+            // Save inside the active network
+            networks[activeNetwork][name] = {
+                color: color,
+                coordinates: activeDraftCoordinates,
+                visible: true
+            };
+            
+            saveNetworks(networks);
+            document.getElementById('routeName').value = '';
+            clearDraft();
+            loadSavedRoutes();
+        }
+
+        window.loadSavedRoutes = function() {
+            var container = document.getElementById('routes-container');
+            container.innerHTML = ''; 
+            savedLayerGroup.clearLayers(); 
+            savedPolylines = {};
+
+            if (!activeNetwork) return;
+
+            var networks = getNetworks();
+            var currentNetworkRoutes = networks[activeNetwork] || {};
+
+            for (let routeName in currentNetworkRoutes) {
+                let routeData = currentNetworkRoutes[routeName];
+
+                var polyline = L.polyline(routeData.coordinates, { color: routeData.color, weight: 6, opacity: 0.9 });
+                savedPolylines[routeName] = polyline;
+
+                if (routeData.visible) { polyline.addTo(savedLayerGroup); }
+
+                var itemDiv = document.createElement('div');
+                itemDiv.className = 'route-item';
+                var isChecked = routeData.visible ? 'checked' : '';
+                
+                itemDiv.innerHTML = `
+                    <div class="route-info">
+                        <input type="checkbox" onchange="toggleRoute('${routeName.replace(/'/g, "\\'")}')" ${isChecked}>
+                        <div class="color-box" style="background-color: ${routeData.color};"></div>
+                        <span title="${routeName}">${routeName}</span>
+                    </div>
+                    <div class="route-stats">
+                        <button class="danger" onclick="deleteRoute('${routeName.replace(/'/g, "\\'")}')">Delete</button>
+                    </div>
+                `;
+                container.appendChild(itemDiv);
+            }
+        }
+
+        window.toggleRoute = function(name) {
+            var networks = getNetworks();
+            if (networks[activeNetwork] && networks[activeNetwork][name]) {
+                networks[activeNetwork][name].visible = !networks[activeNetwork][name].visible; 
+                saveNetworks(networks);
+                loadSavedRoutes(); 
+            }
+        };
+
+        window.toggleAll = function(show) {
+            var networks = getNetworks();
+            if (networks[activeNetwork]) {
+                for (let name in networks[activeNetwork]) {
+                    networks[activeNetwork][name].visible = show;
+                }
+                saveNetworks(networks);
+                loadSavedRoutes();
+            }
+        };
+
+        window.deleteRoute = function(name) {
+            if(confirm("Delete route '" + name + "'?")) {
+                var networks = getNetworks();
+                delete networks[activeNetwork][name];
+                saveNetworks(networks);
+                loadSavedRoutes();
+            }
+        };
+
+        // Open the menu automatically when the page loads
+        openMainMenu();
+
+    </script>
+</body>
+</html>
